@@ -1,0 +1,97 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: ddp_tictactoe-linux
+            executable_name: ddp_tictactoe
+          - os: windows-latest
+            artifact_name: ddp_tictactoe-windows
+            executable_name: ddp_tictactoe.exe
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup CMake
+      uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: '3.20'
+    
+    - name: Setup MSVC (Windows only)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+    
+    - name: Create build and install directories
+      run: |
+        mkdir -p build
+        mkdir -p install
+    
+    - name: Configure CMake
+      run: cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${PWD}/install"
+    
+    - name: Build
+      run: cmake --build build --config Release
+    
+    - name: Install
+      run: cmake --install build
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: install/bin/${{ matrix.executable_name }}
+        if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ddp_tictactoe-linux
+        path: ./artifacts/linux
+    
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ddp_tictactoe-windows
+        path: ./artifacts/windows
+    
+    - name: Create release archives
+      run: |
+        cd artifacts/linux
+        chmod +x ddp_tictactoe
+        tar -czf ../../ddp_tictactoe-linux.tar.gz ddp_tictactoe
+        cd ../windows
+        zip ../../ddp_tictactoe-windows.zip ddp_tictactoe.exe
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ddp_tictactoe-linux.tar.gz
+          ddp_tictactoe-windows.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
